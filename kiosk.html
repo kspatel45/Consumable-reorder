@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Badge Kiosk · Consumables Reorder</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; flex-direction: column; user-select: none; }
+  body.ready { cursor: none; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 18px 32px; background: #111c33; font-size: 22px; }
+  #clock { font-variant-numeric: tabular-nums; opacity: .8; }
+  #stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; transition: background .2s; }
+  #icon { font-size: 120px; line-height: 1; }
+  #headline { font-size: 56px; font-weight: 800; margin: 18px 0 6px; }
+  #detail { font-size: 30px; opacity: .9; max-width: 1100px; }
+  #sub { font-size: 22px; opacity: .65; margin-top: 10px; }
+  .ok { background: #065f46; } .warn { background: #92400e; } .bad { background: #991b1b; } .busy { background: #1e3a8a; }
+  #recent { background: #111c33; padding: 12px 32px 20px; }
+  #recent h3 { margin: 0 0 8px; font-size: 16px; opacity: .6; text-transform: uppercase; letter-spacing: .08em; }
+  #recent table { width: 100%; border-collapse: collapse; font-size: 19px; }
+  #recent td { padding: 6px 8px; border-top: 1px solid #1f2b46; }
+  .pill { padding: 2px 10px; border-radius: 10px; font-size: 14px; font-weight: 700; }
+  .pending { background: #78350f; color: #fde68a; } .ordered { background: #1e3a8a; color: #bfdbfe; } .received { background: #065f46; color: #a7f3d0; }
+  #offline { position: fixed; top: 0; left: 0; right: 0; background: #b91c1c; color: #fff; text-align: center; padding: 6px; font-weight: 700; }
+  #login { position: fixed; inset: 0; background: #0f172a; display: flex; align-items: center; justify-content: center; }
+  #login form { background: #111c33; padding: 32px; border-radius: 12px; width: min(420px, 92vw); display: grid; gap: 12px; user-select: auto; }
+  #login input, #login button { font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid #334155; background: #0b1324; color: #e2e8f0; }
+  #login button { background: #0f6cbd; border-color: #0f6cbd; font-weight: 700; cursor: pointer; }
+  #login .err { color: #fca5a5; min-height: 18px; }
+  #signout { position: fixed; bottom: 6px; right: 10px; color: #475569; font-size: 12px; text-decoration: none; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="offline" hidden>⚠ No internet — taps will not be recorded</div>
+<header><div>📦 <span class="site-name">Consumables Reorder</span> — Badge Station</div><div id="clock"></div></header>
+<section id="stage">
+  <div id="icon">🪪</div>
+  <div id="headline">Tap the bin badge</div>
+  <div id="detail">Tap the badge from the empty bin on the reader to request a reorder.</div>
+  <div id="sub"></div>
+</section>
+<section id="recent"><h3>Recent requests</h3><table><tbody id="recentBody"></tbody></table></section>
+<a href="#" id="signout" class="hidden">sign out kiosk</a>
+
+<div id="login" class="hidden">
+  <form id="loginForm">
+    <h2 style="margin:0">Kiosk sign-in (one time)</h2>
+    <div style="opacity:.7;font-size:14px">Sign in with the <b>Kiosk</b> user created in Admin → Users. The NUC stays signed in after that.</div>
+    <input id="email" type="email" placeholder="Kiosk email" required>
+    <input id="password" type="password" placeholder="Password" required>
+    <div class="err" id="err"></div>
+    <button>Sign in</button>
+  </form>
+</div>
+
+<script type="module">
+import { auth, db, $, esc, fmtDate, toDate, createRequest, Sound, friendlyError, SETTINGS } from "./js/common.js";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, collection, doc, getDoc, getDocs, setDoc, query, where,
+         orderBy, limit, onSnapshot, serverTimestamp, increment } from "./js/fb.js";
+
+document.querySelectorAll(".site-name").forEach(e => (e.textContent = SETTINGS.siteName));
+let who = null, ready = false, buf = "", timer = null, busy = false, resetTimer = null, unsubRecent = null;
+const IDLE = { icon: "🪪", headline: "Tap the bin badge", detail: "Tap the badge from the empty bin on the reader to request a reorder.", sub: "", cls: "" };
+
+function show(s) {
+  $("#stage").className = s.cls || "";
+  $("#icon").textContent = s.icon; $("#headline").textContent = s.headline;
+  $("#detail").textContent = s.detail || ""; $("#sub").textContent = s.sub || "";
+  clearTimeout(resetTimer);
+  if (s !== IDLE) resetTimer = setTimeout(() => show(IDLE), 6000);
+}
+
+onAuthStateChanged(auth, async u => {
+  ready = false;
+  if (!u) { $("#login").classList.remove("hidden"); document.body.classList.remove("ready"); return; }
+  let p = null;
+  try { const s = await getDoc(doc(db, "users", u.uid)); p = s.exists() ? s.data() : null; } catch (_) {}
+  if (!p || !p.active || !["kiosk", "admin"].includes(p.role)) {
+    await signOut(auth); $("#err").textContent = "This login is not a Kiosk (or Admin) user."; return;
+  }
+  who = { name: p.role === "kiosk" ? "Badge kiosk" : `Badge kiosk (${p.name})`, email: u.email };
+  $("#login").classList.add("hidden"); $("#signout").classList.remove("hidden");
+  document.body.classList.add("ready"); ready = true;
+  startRecent();
+});
+
+$("#loginForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("#err").textContent = "";
+  try { await signInWithEmailAndPassword(auth, $("#email").value.trim(), $("#password").value); }
+  catch (err) { $("#err").textContent = friendlyError(err); }
+});
+$("#signout").addEventListener("click", async e => { e.preventDefault(); if (confirm("Sign out the kiosk?")) { if (unsubRecent) unsubRecent(); await signOut(auth); } });
+
+/* Badge readers act like a keyboard: they "type" the ID very fast, usually followed by Enter. */
+document.addEventListener("keydown", e => {
+  Sound.unlock();
+  if (!ready) return;
+  if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); flush(); return; }
+  if (e.key.length === 1) { buf += e.key; clearTimeout(timer); timer = setTimeout(flush, 400); }
+});
+
+async function flush() {
+  clearTimeout(timer);
+  const badge = buf.replace(/\s+/g, ""); buf = "";
+  if (badge.length < 2 || busy) return;
+  busy = true;
+  show({ icon: "⏳", headline: "Reading…", detail: badge, cls: "busy" });
+  try {
+    const snap = await getDocs(query(collection(db, "parts"), where("badgeId", "==", badge), limit(1)));
+    const part = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+    if (!part || !part.active) {
+      await setDoc(doc(db, "unknownScans", encodeURIComponent(badge).replace(/\./g, "%2E")),
+        { badgeId: badge, lastSeen: serverTimestamp(), count: increment(1) }, { merge: true });
+      Sound.error();
+      show({ icon: "❓", headline: "Badge not set up", cls: "bad", detail: `Badge ID: ${badge}`, sub: "Ask the admin to assign this badge to a part." });
+    } else {
+      const r = await createRequest(part.id, { by: who.name, byEmail: who.email, source: "kiosk" });
+      if (r.result === "created") {
+        Sound.success();
+        show({ icon: "✅", headline: "Reorder requested!", cls: "ok", detail: `${part.partNumber} — ${part.description || ""}`, sub: `Qty to order: ${r.qty}` });
+      } else {
+        Sound.warn();
+        show({ icon: "ℹ️", headline: "Already requested", cls: "warn", detail: `${part.partNumber} — ${part.description || ""}`,
+               sub: `Pending since ${fmtDate(r.part.pendingSince)}. No need to tap again.` });
+      }
+    }
+  } catch (err) {
+    Sound.error();
+    show({ icon: "⚠️", headline: "Not recorded", cls: "bad", detail: friendlyError(err), sub: "Please tap again." });
+  }
+  busy = false;
+}
+
+function startRecent() {
+  if (unsubRecent) return;
+  const label = { pending: "Requested", ordered: "Ordered", received: "Received" };
+  unsubRecent = onSnapshot(query(collection(db, "board"), orderBy("requestedAt", "desc"), limit(6)), snap => {
+    $("#recentBody").innerHTML = snap.docs.map(d => d.data({ serverTimestamps: "estimate" })).map(r =>
+      `<tr><td>${fmtDate(r.requestedAt)}</td><td><b>${esc(r.partNumber)}</b></td><td>${esc(r.description)}</td>
+       <td>× ${r.qty}</td><td><span class="pill ${r.status}">${label[r.status] || r.status}</span></td></tr>`).join("")
+      || '<tr><td style="opacity:.6">No requests yet</td></tr>';
+  }, () => {});
+}
+
+const setOnline = () => ($("#offline").hidden = navigator.onLine);
+window.addEventListener("online", setOnline); window.addEventListener("offline", setOnline); setOnline();
+function tick() { $("#clock").textContent = new Date().toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+tick(); setInterval(tick, 10000);
+// Reload once a day at ~3 AM to pick up site updates (cheap: a few reads).
+setInterval(() => { const d = new Date(); if (d.getHours() === 3 && d.getMinutes() === 0 && !busy) location.reload(); }, 60000);
+</script>
+</body>
+</html>

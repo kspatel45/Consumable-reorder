@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · Consumables Reorder</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar"><div class="brand">📦 <span class="site-name">Consumables Reorder</span></div><nav></nav></header>
+<main>
+  <div class="card login-box">
+    <h1>📦 <span class="site-name">Consumables Reorder</span></h1>
+    <p style="color:var(--muted)">Sign in to view and place consumable orders.</p>
+    <form id="loginForm" style="display:grid;gap:10px;text-align:left">
+      <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" required autofocus></div>
+      <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" required></div>
+      <div class="err" id="err"></div>
+      <button class="btn primary big" id="btnLogin" style="justify-content:center">Sign in</button>
+    </form>
+    <p style="font-size:13px;margin-top:14px"><a href="#" id="forgot">Forgot password?</a></p>
+    <p style="color:var(--muted);font-size:13px">No account? Ask the admin.</p>
+    <p><a href="board.html">View the public order board →</a></p>
+    <p style="font-size:12px;margin-top:24px"><a href="setup.html" style="color:var(--muted)">First-time admin setup</a></p>
+  </div>
+</main>
+<div id="toast" class="toast"></div>
+<script type="module">
+import { auth, db, $, toast, friendlyError, SETTINGS } from "./js/common.js";
+import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged, doc, getDoc } from "./js/fb.js";
+
+document.querySelectorAll(".site-name").forEach(e => (e.textContent = SETTINGS.siteName));
+const params = new URLSearchParams(location.search);
+if (params.get("error")) $("#err").textContent = params.get("error");
+let busy = false;
+
+async function route(user) {
+  let p = null;
+  try { const s = await getDoc(doc(db, "users", user.uid)); p = s.exists() ? s.data() : null; } catch (_) {}
+  if (!p) {
+    if ((user.email || "").toLowerCase() === SETTINGS.firstAdminEmail.toLowerCase()) { location.href = "setup.html"; return; }
+    await signOut(auth); $("#err").textContent = "Your login has no access yet. Ask the admin."; return;
+  }
+  if (!p.active) { await signOut(auth); $("#err").textContent = "Your account is disabled. Ask the admin."; return; }
+  if (p.role === "kiosk") { location.href = "kiosk.html"; return; }
+  const next = params.get("next");
+  location.href = next && /^[\w-]+\.html$/.test(next) ? next : "orders.html";
+}
+
+const off = onAuthStateChanged(auth, u => { off(); if (u && !busy) route(u); });
+
+$("#loginForm").addEventListener("submit", async e => {
+  e.preventDefault(); busy = true; $("#err").textContent = ""; $("#btnLogin").disabled = true;
+  try {
+    const cred = await signInWithEmailAndPassword(auth, $("#email").value.trim(), $("#password").value);
+    await route(cred.user);
+  } catch (err) { $("#err").textContent = friendlyError(err); }
+  $("#btnLogin").disabled = false;
+});
+
+$("#forgot").addEventListener("click", async e => {
+  e.preventDefault();
+  const email = $("#email").value.trim();
+  if (!email) { $("#err").textContent = "Type your email above first, then click 'Forgot password?'."; return; }
+  try { await sendPasswordResetEmail(auth, email); toast("If that email has an account, a reset link was sent."); }
+  catch (err) { $("#err").textContent = friendlyError(err); }
+});
+</script>
+</body>
+</html>

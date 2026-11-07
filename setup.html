@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>First-time setup · Consumables Reorder</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar"><div class="brand">📦 <span class="site-name">Consumables Reorder</span></div><nav></nav></header>
+<main>
+  <div class="card login-box" style="text-align:left;max-width:520px">
+    <h1>First-time admin setup</h1>
+    <p style="color:var(--muted)">Run this <b>once</b> to create the first admin account: <b id="adminEmail"></b>.
+       After that, add everyone else in <b>Admin → Users</b>.</p>
+
+    <section id="step1">
+      <h2>Step 1 — Create your password</h2>
+      <form id="f1" style="display:grid;gap:4px">
+        <div class="field"><label>Password (min 6 characters)</label><input id="pw1" type="password" minlength="6" required autocomplete="new-password"></div>
+        <div class="field"><label>Repeat password</label><input id="pw2" type="password" minlength="6" required autocomplete="new-password"></div>
+        <button class="btn primary">Create admin login</button>
+      </form>
+      <p style="font-size:13px;color:var(--muted)">Already created it? <a href="#" id="haveAcct">Sign in instead</a></p>
+      <form id="f1b" class="hidden" style="display:grid;gap:4px">
+        <div class="field"><label>Password</label><input id="pw3" type="password" autocomplete="current-password"></div>
+        <button class="btn primary">Sign in</button>
+      </form>
+    </section>
+
+    <section id="step2" class="hidden">
+      <h2>Step 2 — Confirm your email</h2>
+      <p>We sent a verification link to <b class="ae"></b>. Open your mailbox (check Junk too), click the link, then press the button below.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn primary" id="btnDone">I clicked the link — finish setup</button>
+        <button class="btn" id="btnResend">Send the email again</button>
+      </div>
+    </section>
+
+    <section id="step3" class="hidden">
+      <h2>✅ Done</h2>
+      <p>You are the admin. <a href="admin.html">Open the Admin page →</a></p>
+    </section>
+    <div class="err" id="err"></div>
+  </div>
+</main>
+<div id="toast" class="toast"></div>
+<script type="module">
+import { auth, db, $, toast, friendlyError, SETTINGS } from "./js/common.js";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, onAuthStateChanged,
+         doc, getDoc, setDoc, serverTimestamp } from "./js/fb.js";
+
+const EMAIL = SETTINGS.firstAdminEmail;
+document.querySelectorAll(".site-name").forEach(e => (e.textContent = SETTINGS.siteName));
+$("#adminEmail").textContent = EMAIL;
+document.querySelectorAll(".ae").forEach(e => (e.textContent = EMAIL));
+const show = n => ["step1", "step2", "step3"].forEach((s, i) => $("#" + s).classList.toggle("hidden", i + 1 !== n));
+const err = m => ($("#err").textContent = m || "");
+
+async function afterSignIn(user) {
+  const s = await getDoc(doc(db, "users", user.uid)).catch(() => null);
+  if (s && s.exists()) { show(3); return; }
+  if (!user.emailVerified) {
+    show(2);
+    try { await sendEmailVerification(user); toast("Verification email sent to " + EMAIL); } catch (e) { err(friendlyError(e)); }
+    return;
+  }
+  await finish(user);
+}
+async function finish(user) {
+  await user.reload();
+  if (!auth.currentUser.emailVerified) { err("Email not verified yet. Click the link in the email first."); return; }
+  await auth.currentUser.getIdToken(true);
+  try {
+    await setDoc(doc(db, "users", user.uid), { email: EMAIL, name: "Administrator", role: "admin", active: true, createdAt: serverTimestamp() });
+    err(""); show(3);
+  } catch (e) { err(friendlyError(e)); }
+}
+
+const off = onAuthStateChanged(auth, u => {
+  off();
+  if (u && (u.email || "").toLowerCase() === EMAIL.toLowerCase()) afterSignIn(u);
+});
+
+$("#f1").addEventListener("submit", async e => {
+  e.preventDefault(); err("");
+  if ($("#pw1").value !== $("#pw2").value) { err("The two passwords don't match."); return; }
+  try { const c = await createUserWithEmailAndPassword(auth, EMAIL, $("#pw1").value); await afterSignIn(c.user); }
+  catch (e2) { err(friendlyError(e2) + (e2.code?.includes("email-already-in-use") ? " Use 'Sign in instead'." : "")); }
+});
+$("#haveAcct").addEventListener("click", e => { e.preventDefault(); $("#f1").classList.add("hidden"); $("#f1b").classList.remove("hidden"); });
+$("#f1b").addEventListener("submit", async e => {
+  e.preventDefault(); err("");
+  try { const c = await signInWithEmailAndPassword(auth, EMAIL, $("#pw3").value); await afterSignIn(c.user); }
+  catch (e2) { err(friendlyError(e2)); }
+});
+$("#btnDone").addEventListener("click", () => finish(auth.currentUser));
+$("#btnResend").addEventListener("click", async () => {
+  try { await sendEmailVerification(auth.currentUser); toast("Sent again."); } catch (e) { err(friendlyError(e)); }
+});
+</script>
+</body>
+</html>

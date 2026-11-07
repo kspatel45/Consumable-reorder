@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orders · Consumables Reorder</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="loading">
+<header class="topbar"><div class="brand">📦 <span class="site-name">Consumables Reorder</span></div><nav id="nav"></nav></header>
+<main>
+<div id="soundBanner" class="banner hidden">🔔 Click anywhere on this page to turn on the sound alert for new part requests.</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="pending">Pending orders <span id="pendingCount" class="count zero">0</span></button>
+  <button class="tab" data-tab="ordered">Already ordered</button>
+</div>
+
+<div class="filters">
+  <input id="fPn" type="search" placeholder="Search part number…">
+  <label><span id="dateLabel">Requested</span> from <input type="date" id="fStart"></label>
+  <label>to <input type="date" id="fEnd"></label>
+  <button class="btn sm" id="btnClear">Clear</button>
+  <span class="spacer"></span>
+  <button class="btn" id="btnNew">+ New request</button>
+  <button class="btn" id="btnCsv">⬇ Export CSV</button>
+</div>
+
+<div class="table-wrap">
+  <table id="tbl"><thead></thead><tbody></tbody></table>
+  <div id="empty" class="empty hidden">No records found.</div>
+</div>
+<div class="more-bar"><span id="moreInfo"></span> <button class="btn sm hidden" id="btnMore">Load more</button></div>
+
+<dialog id="orderDlg">
+  <form method="dialog" id="orderForm">
+    <h2 id="oTitle">Place order</h2>
+    <div class="sub" id="oSub"></div>
+    <div class="row2">
+      <div class="field"><label>Qty ordered *</label><input type="number" min="1" id="oQty" required></div>
+      <div class="field"><label>PO number</label><input id="oPo" placeholder="e.g. PO-12345"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Vendor</label><input id="oVendor"></div>
+      <div class="field"><label>Expected arrival (when coming)</label><input type="date" id="oEta"></div>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="oNotes" rows="2"></textarea></div>
+    <div class="field hint" id="oLinkHint"></div>
+    <div class="err" id="oErr"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="oCancel">Cancel</button>
+      <button type="submit" class="btn primary" id="oSave">Mark as ordered</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="newDlg">
+  <form method="dialog" id="newForm">
+    <h2>New order request</h2>
+    <div class="sub">Use this when a badge is missing. Normally people just tap the bin badge on the kiosk.</div>
+    <div class="field"><label>Part</label><select id="nPart" required></select></div>
+    <div class="field"><label>Qty needed</label><input type="number" min="1" id="nQty"></div>
+    <div class="err" id="nErr"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="nCancel">Cancel</button>
+      <button type="submit" class="btn primary">Add request</button>
+    </div>
+  </form>
+</dialog>
+</main>
+<div id="toast" class="toast"></div>
+<script type="module" src="js/orders.js"></script>
+</body>
+</html>

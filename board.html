@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order Board · Consumables Reorder</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">📦 <span class="site-name">Consumables Reorder</span> — Order Board</div>
+  <nav><span class="who" id="updated"></span><a href="index.html">Sign in to order →</a></nav>
+</header>
+<main>
+<div id="soundBanner" class="banner hidden">🔔 Click anywhere to turn on the sound alert for new requests.</div>
+<div class="filters">
+  <span class="pill pending" id="cPending">0 requested</span>
+  <span class="pill ordered" id="cOrdered">0 ordered</span>
+  <span class="pill received" id="cReceived">0 received</span>
+  <span class="spacer"></span>
+  <input id="bSearch" type="search" placeholder="Search part number…">
+  <span style="color:var(--muted);font-size:13px">Showing the last <span id="days"></span> days</span>
+</div>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Status</th><th>Requested</th><th>Part #</th><th>Description</th><th>Qty</th><th>Ordered</th><th>When coming</th></tr></thead>
+    <tbody id="bBody"></tbody>
+  </table>
+  <div id="bEmpty" class="empty hidden">Nothing requested or ordered in the last few days.</div>
+</div>
+</main>
+<script type="module">
+import { db, $, esc, fmtDate, toDate, todayStr, Sound, setupSoundBanner, SETTINGS } from "./js/common.js";
+import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from "./js/fb.js";
+
+document.querySelectorAll(".site-name").forEach(e => (e.textContent = SETTINGS.siteName));
+$("#days").textContent = SETTINGS.boardDays;
+const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - SETTINGS.boardDays);
+let items = [], first = true, flash = new Set();
+const LABEL = { pending: "Order requested", ordered: "Ordered", received: "Received" };
+const ORDER = { pending: 0, ordered: 1, received: 2 };
+
+// One live listener: Firebase only sends (and charges for) rows that change after the first load.
+onSnapshot(query(collection(db, "board"), where("requestedAt", ">=", Timestamp.fromDate(cutoff)), orderBy("requestedAt", "desc"), limit(300)), snap => {
+  items = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+  if (!first) {
+    const added = snap.docChanges().filter(c => c.type === "added");
+    if (added.length) { Sound.chime(); added.forEach(c => flash.add(c.doc.id)); }
+  }
+  first = false;
+  render();
+  $("#updated").textContent = "Live · updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}, () => { $("#updated").textContent = "⚠ offline"; });
+
+function render() {
+  const q = $("#bSearch").value.trim().toLowerCase(), today = todayStr();
+  const list = items.filter(r => !q || r.partNumber.toLowerCase().includes(q) || (r.description || "").toLowerCase().includes(q))
+    .sort((a, b) => (ORDER[a.status] - ORDER[b.status]) || ((toDate(b.requestedAt) || 0) - (toDate(a.requestedAt) || 0)));
+  $("#bBody").innerHTML = list.map(r => {
+    const late = r.status === "ordered" && r.expectedDate && r.expectedDate < today;
+    return `<tr class="${flash.has(r.id) ? "flash" : ""}">
+    <td><span class="pill ${r.status}">${LABEL[r.status] || r.status}</span></td>
+    <td>${fmtDate(r.requestedAt)}</td><td class="pn">${esc(r.partNumber)}</td><td>${esc(r.description)}</td>
+    <td class="num">${r.qty}</td><td>${fmtDate(r.orderedAt)}</td>
+    <td class="${late ? "late" : ""}">${r.status === "received" ? "Arrived " + fmtDate(r.receivedAt, false) : fmtDate(r.expectedDate, false)}</td></tr>`;
+  }).join("");
+  $("#bEmpty").classList.toggle("hidden", list.length > 0);
+  for (const s of ["pending", "ordered", "received"]) {
+    const n = items.filter(r => r.status === s).length;
+    $("#c" + s[0].toUpperCase() + s.slice(1)).textContent = `${n} ${s === "pending" ? "requested" : s}`;
+  }
+  flash.clear();
+}
+$("#bSearch").addEventListener("input", render);
+setupSoundBanner();
+// Refresh the 14-day window once a day (early morning).
+setInterval(() => { const d = new Date(); if (d.getHours() === 4 && d.getMinutes() === 0) location.reload(); }, 60000);
+</script>
+</body>
+</html>

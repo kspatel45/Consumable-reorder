@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My account · Consumables Reorder</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="loading">
+<header class="topbar"><div class="brand">📦 <span class="site-name">Consumables Reorder</span></div><nav id="nav"></nav></header>
+<main>
+  <div class="card login-box" style="text-align:left">
+    <h1>My account</h1>
+    <p id="me"></p>
+    <h2>Change password</h2>
+    <form id="pwForm" style="display:grid;gap:4px">
+      <div class="field"><label>Current password</label><input type="password" id="cur" required autocomplete="current-password"></div>
+      <div class="field"><label>New password (min 6 characters)</label><input type="password" id="new1" required minlength="6" autocomplete="new-password"></div>
+      <div class="field"><label>Repeat new password</label><input type="password" id="new2" required minlength="6" autocomplete="new-password"></div>
+      <div class="err" id="err"></div>
+      <div id="ok" style="color:var(--ok);font-weight:600"></div>
+      <button class="btn primary">Change password</button>
+    </form>
+  </div>
+</main>
+<div id="toast" class="toast"></div>
+<script type="module">
+import { auth, $, esc, requireUser, friendlyError } from "./js/common.js";
+import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "./js/fb.js";
+
+const me = await requireUser(["admin", "buyer", "viewer"]);
+document.body.classList.remove("loading");
+$("#me").innerHTML = `<b>${esc(me.name)}</b> · ${esc(me.email)} · <span class="pill ordered">${esc(me.role)}</span>`;
+$("#pwForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("#err").textContent = ""; $("#ok").textContent = "";
+  if ($("#new1").value !== $("#new2").value) { $("#err").textContent = "The two new passwords don't match."; return; }
+  try {
+    await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(me.email, $("#cur").value));
+    await updatePassword(auth.currentUser, $("#new1").value);
+    $("#ok").textContent = "Password changed."; e.target.reset();
+  } catch (err) { $("#err").textContent = err.code?.includes("invalid-credential") || err.code?.includes("wrong-password") ? "Current password is wrong." : friendlyError(err); }
+});
+</script>
+</body>
+</html>

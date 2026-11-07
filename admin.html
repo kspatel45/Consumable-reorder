@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Consumables Reorder</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="loading">
+<header class="topbar"><div class="brand">📦 <span class="site-name">Consumables Reorder</span></div><nav id="nav"></nav></header>
+<main>
+<h1>Admin</h1>
+<div class="tabs">
+  <button class="tab active" data-atab="parts">Parts &amp; badges</button>
+  <button class="tab" data-atab="users">Users</button>
+  <button class="tab" data-atab="links">Links</button>
+</div>
+
+<section data-apanel="parts">
+  <div class="card">
+    <h2>🔖 New badges tapped at the kiosk (not assigned yet)</h2>
+    <p style="color:var(--muted);margin-top:0">Easiest way to set up a badge: tap it on the kiosk reader, then assign it here.
+       You can also click into the <b>Badge ID</b> field of a part and tap a USB badge reader plugged into your PC.</p>
+    <div class="table-wrap"><table id="unkTbl"><thead><tr><th>Badge ID</th><th>Last tapped</th><th>Taps</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="unkEmpty" class="empty">No unassigned badge taps.</div></div>
+  </div>
+
+  <div class="card">
+    <div class="filters">
+      <h2 style="margin:0">Parts</h2>
+      <input id="pSearch" type="search" placeholder="Search part number, description, badge, vendor…">
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnAdd">+ Add part</button>
+      <button class="btn" id="btnExport">⬇ Export CSV</button>
+      <label class="btn" style="color:inherit;font-size:inherit">⬆ Import CSV<input type="file" id="importFile" accept=".csv" hidden></label>
+    </div>
+    <div class="table-wrap"><table id="pTbl">
+      <thead><tr><th>Part #</th><th>Description</th><th>Badge ID</th><th>Order qty</th><th>Vendor</th><th>Location</th><th>Order link</th><th>Status</th><th>Last request</th><th></th></tr></thead>
+      <tbody></tbody></table>
+      <div id="pEmpty" class="empty hidden">No parts yet. Click “+ Add part” or import a CSV.</div>
+    </div>
+    <p style="color:var(--muted);font-size:13px">CSV import columns: <code>part_number, description, badge_id, order_qty, order_url, vendor, location</code>.
+       Existing part numbers are updated, new ones are added.</p>
+  </div>
+</section>
+
+<section data-apanel="users" class="hidden">
+  <div class="card">
+    <div class="filters">
+      <h2 style="margin:0">Users</h2>
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnAddUser">+ Add user</button>
+    </div>
+    <div class="table-wrap"><table id="uTbl">
+      <thead><tr><th>Name</th><th>Email (login)</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr></thead>
+      <tbody></tbody></table></div>
+    <p style="color:var(--muted);font-size:13px">
+      <b>Admin</b>: everything incl. parts &amp; users · <b>Buyer</b>: place orders, add/cancel requests, mark received ·
+      <b>Viewer</b>: can only look · <b>Kiosk</b>: used only to sign in the badge station once.<br>
+      Users change their own password by clicking their name at the top. Forgot it? Edit the user → <b>Send password reset email</b>.</p>
+  </div>
+</section>
+
+<section data-apanel="links" class="hidden">
+  <div class="card">
+    <h2>🔗 Links to share</h2>
+    <table class="links">
+      <tr><td>Order page (team signs in)</td><td><code id="lOrders"></code></td></tr>
+      <tr><td>Public board (no login, last <span id="lDays"></span> days)</td><td><code id="lBoard"></code></td></tr>
+      <tr><td>Badge kiosk (open on the NUC, sign in once with a Kiosk user)</td><td><code id="lKiosk"></code></td></tr>
+    </table>
+  </div>
+</section>
+
+<dialog id="partDlg">
+  <form method="dialog" id="partForm">
+    <h2 id="pdTitle">Add part</h2>
+    <div class="sub">The order link opens when someone presses <b>Order</b> on a pending request.</div>
+    <input type="hidden" id="pdId">
+    <div class="row2">
+      <div class="field"><label>Part number *</label><input id="pdPn" required></div>
+      <div class="field"><label>Badge ID</label><input id="pdBadge" placeholder="Click here, then tap badge"><span class="hint">Leave empty if no badge yet</span></div>
+    </div>
+    <div class="field"><label>Description</label><input id="pdDesc"></div>
+    <div class="row2">
+      <div class="field"><label>Order qty *</label><input type="number" min="1" id="pdQty" required value="1"></div>
+      <div class="field"><label>Vendor</label><input id="pdVendor"></div>
+    </div>
+    <div class="field"><label>Order page link</label><input id="pdUrl" placeholder="https://www.vendor.com/product/..."></div>
+    <div class="row2">
+      <div class="field"><label>Bin / location</label><input id="pdLoc"></div>
+      <div class="field"><label>&nbsp;</label><label style="font-weight:400"><input type="checkbox" id="pdActive" checked> Active (badge taps create requests)</label></div>
+    </div>
+    <div class="err" id="pdErr"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="pdDelete">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="pdCancel">Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="userDlg">
+  <form method="dialog" id="userForm" autocomplete="off">
+    <h2 id="udTitle">Add user</h2>
+    <div class="sub">They sign in with this email and password.</div>
+    <input type="hidden" id="udId">
+    <div class="field"><label>Full name *</label><input id="udName" required></div>
+    <div class="field"><label>Email (login) *</label><input id="udEmail" type="email" required autocomplete="off"></div>
+    <div class="field"><label>Role *</label><select id="udRole"></select></div>
+    <div class="field" id="udPwField"><label>Password *</label>
+      <div style="display:flex;gap:8px"><input id="udPw" type="text" autocomplete="new-password" style="flex:1"><button type="button" class="btn sm" id="udGen">Generate</button></div>
+      <span class="hint">Min 6 characters. Give it to the user; they can change it later.</span></div>
+    <div class="field hidden" id="udResetField"><label>Password</label>
+      <div><button type="button" class="btn sm" id="udReset">✉ Send password reset email</button></div>
+      <span class="hint">Firebase emails the user a link to set a new password.</span></div>
+    <label style="font-weight:400"><input type="checkbox" id="udActive" checked> Active (can sign in)</label>
+    <div class="err" id="udErr"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="udCancel">Cancel</button>
+      <button type="submit" class="btn primary" id="udSave">Save</button>
+    </div>
+  </form>
+</dialog>
+</main>
+<div id="toast" class="toast"></div>
+<script type="module" src="js/admin.js"></script>
+</body>
+</html>

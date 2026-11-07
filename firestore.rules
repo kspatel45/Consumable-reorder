@@ -1,0 +1,75 @@
+rules_version = '2';
+// Paste this whole file into Firebase console > Firestore Database > Rules > Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Who is calling? (reads users/{uid} once per request; Firebase caches it) ----
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasRole(roles) {
+      return request.auth != null
+        && exists(userPath())
+        && get(userPath()).data.active == true
+        && get(userPath()).data.role in roles;
+    }
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // ---- Users & roles ----
+    match /users/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || hasRole(['admin']));
+      // Admins create users. One-time bootstrap: the first admin (verified email) creates own admin record.
+      allow create: if hasRole(['admin'])
+        || (request.auth != null && request.auth.uid == uid
+            && request.auth.token.email == 'kpatel@signifi.com'
+            && request.auth.token.email_verified == true
+            && request.resource.data.role == 'admin'
+            && request.resource.data.active == true);
+      // Admins edit users, but can't remove their own admin role or deactivate themselves.
+      allow update: if hasRole(['admin'])
+        && request.resource.data.role in ['admin', 'buyer', 'viewer', 'kiosk']
+        && (uid != request.auth.uid
+            || (request.resource.data.role == 'admin' && request.resource.data.active == true));
+      allow delete: if false;
+    }
+
+    // ---- Parts (badge -> part number, order qty, order link) ----
+    match /parts/{id} {
+      allow read: if hasRole(['admin', 'buyer', 'viewer', 'kiosk']);
+      allow create: if hasRole(['admin'])
+        && request.resource.data.partNumber is string && request.resource.data.partNumber.size() > 0
+        && request.resource.data.orderQty is int && request.resource.data.orderQty >= 1;
+      allow update: if (hasRole(['admin'])
+            && request.resource.data.partNumber is string && request.resource.data.partNumber.size() > 0
+            && request.resource.data.orderQty is int && request.resource.data.orderQty >= 1)
+        // Kiosk and buyers may only touch the "pending request" markers.
+        || (hasRole(['buyer', 'kiosk'])
+            && changedOnly(['pendingRequestId', 'pendingSince', 'lastRequestAt']));
+      allow delete: if hasRole(['admin']);
+    }
+
+    // ---- Order requests (full details incl. PO, vendor, who ordered) ----
+    match /requests/{id} {
+      allow read: if hasRole(['admin', 'buyer', 'viewer']);
+      allow create: if hasRole(['admin', 'buyer', 'kiosk'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.qtyNeeded is int && request.resource.data.qtyNeeded >= 1;
+      allow update: if hasRole(['admin', 'buyer'])
+        && request.resource.data.status in ['pending', 'ordered', 'received', 'cancelled'];
+      allow delete: if false;
+    }
+
+    // ---- Public board copy (no PO / vendor / names) ----
+    match /board/{id} {
+      allow read: if true;
+      allow create: if hasRole(['admin', 'buyer', 'kiosk']);
+      allow update, delete: if hasRole(['admin', 'buyer']);
+    }
+
+    // ---- Badges tapped at the kiosk that are not assigned yet ----
+    match /unknownScans/{badge} {
+      allow read, delete: if hasRole(['admin']);
+      allow create, update: if hasRole(['admin', 'kiosk']);
+    }
+  }
+}
